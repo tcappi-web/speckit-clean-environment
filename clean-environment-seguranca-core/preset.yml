@@ -21,6 +21,35 @@ preset:
 requires:
   speckit_version: ">=0.8.11,<0.9.0"
 
+# Campo obrigatório pelo Spec Kit: declara o que este preset fornece.
+provides:
+  templates:
+    - type: "template"
+      name: "constitution-template"
+      file: "templates/constitution-template.md"
+      description: "Constituição em 6 artigos temáticos com princípios de segurança não-negociáveis"
+      replaces: "constitution-template"
+    - type: "template"
+      name: "spec-template"
+      file: "templates/spec-template.md"
+      description: "Spec com seção obrigatória Security & Privacy Impact e riscos OWASP"
+      replaces: "spec-template"
+    - type: "template"
+      name: "plan-template"
+      file: "templates/plan-template.md"
+      description: "Plan com Security Gates e Compliance Gates condicionais"
+      replaces: "plan-template"
+    - type: "template"
+      name: "tasks-template"
+      file: "templates/tasks-template.md"
+      description: "Tasks com bloco [SEC] transversal por user story"
+      replaces: "tasks-template"
+    - type: "template"
+      name: "checklist-template"
+      file: "templates/checklist-template.md"
+      description: "Checklist com 12 grupos: autenticação, autorização, input, API, DB, secrets, LGPD, etc."
+      replaces: "checklist-template"
+
 # Substitui os templates do Spec Kit core. Resolução: a stack do Spec Kit procura
 # project-local overrides → presets → extensions → core, com primeiro match vencendo.
 templates:
@@ -36,7 +65,6 @@ templates:
     target: checklist-template.md
 
 # Comandos do preset NÃO substituem comandos do core neste release.
-# Eles instruem o agente a respeitar as seções novas dos templates.
 # Comandos novos (security-context, security-setup, threat-model, security-audit)
 # pertencem à extension clean-environment-seguranca-tools.
 commands: []
