@@ -1,0 +1,40 @@
+schema_version: "1.0"
+hook:
+  id: "ce-secctx-required"
+  phase: "before_plan"
+  extension: "clean-environment-seguranca-tools"
+  optional: false
+  enabled: true
+
+  description: >
+    Bloqueia /speckit.plan quando .specify/memory/security-context.md está ausente
+    ou contém NEEDS CLARIFICATION. Garante que o contexto de segurança do projeto
+    foi capturado antes de qualquer decisão de design.
+
+  condition: |
+    not file_exists('.specify/memory/security-context.md')
+    or file_contains('.specify/memory/security-context.md', 'NEEDS CLARIFICATION')
+
+  action: "execute_command"
+  command: "speckit.security-context"
+
+  prompt: |
+    ⚠️  Bloqueio de Segurança — Clean Environment
+
+    /speckit.plan exige que o contexto de segurança do projeto esteja capturado.
+
+    Estado atual:
+      - .specify/memory/security-context.md: {{ context_status }}
+
+    Próximo passo OBRIGATÓRIO:
+      /speckit.security-context
+
+    Após gerar/completar o security-context.md, retorne ao /speckit.plan.
+
+    Para desligar este hook (não recomendado, exige justificativa em audit trail):
+      specify extension config clean-environment-seguranca-tools enable_hooks=false
+
+  audit_log:
+    enabled: true
+    file: ".specify/security-audit-trail.jsonl"
+    fields: ["timestamp", "actor", "feature_dir", "blocked_command", "reason"]

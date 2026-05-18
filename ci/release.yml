@@ -1,0 +1,152 @@
+name: Release Preset or Extension
+
+on:
+  push:
+    tags:
+      - 'clean-environment-seguranca-core-v*'
+      - 'clean-environment-seguranca-tools-v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine package
+        id: pkg
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ "$TAG" == clean-environment-seguranca-core-v* ]]; then
+            echo "kind=preset" >> $GITHUB_OUTPUT
+            echo "dir=clean-environment-seguranca-core" >> $GITHUB_OUTPUT
+            echo "id=clean-environment-seguranca-core" >> $GITHUB_OUTPUT
+            VERSION="${TAG#clean-environment-seguranca-core-v}"
+          else
+            echo "kind=extension" >> $GITHUB_OUTPUT
+            echo "dir=clean-environment-seguranca-tools" >> $GITHUB_OUTPUT
+            echo "id=clean-environment-seguranca-tools" >> $GITHUB_OUTPUT
+            VERSION="${TAG#clean-environment-seguranca-tools-v}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Validate version matches manifest
+        run: |
+          DIR="${{ steps.pkg.outputs.dir }}"
+          KIND="${{ steps.pkg.outputs.kind }}"
+          VERSION="${{ steps.pkg.outputs.version }}"
+          if [ "$KIND" = "preset" ]; then
+            MANIFEST="$DIR/preset.yml"
+          else
+            MANIFEST="$DIR/extension.yml"
+          fi
+          DECLARED=$(grep -E '^\s*version:' "$MANIFEST" | head -1 | sed -E 's/.*"([0-9.]+)".*/\1/')
+          if [ "$VERSION" != "$DECLARED" ]; then
+            echo "❌ Tag version $VERSION ≠ manifest version $DECLARED"
+            exit 1
+          fi
+          echo "✅ Versão da tag bate com manifest: $VERSION"
+
+      - name: Validate package structure
+        run: |
+          DIR="${{ steps.pkg.outputs.dir }}"
+          KIND="${{ steps.pkg.outputs.kind }}"
+
+          if [ "$KIND" = "preset" ]; then
+            for required in preset.yml README.md templates; do
+              if [ ! -e "$DIR/$required" ]; then
+                echo "❌ Faltando $DIR/$required"; exit 1
+              fi
+            done
+            for tpl in constitution-template.md spec-template.md plan-template.md tasks-template.md checklist-template.md; do
+              if [ ! -f "$DIR/templates/$tpl" ]; then
+                echo "❌ Faltando template $DIR/templates/$tpl"; exit 1
+              fi
+            done
+          else
+            for required in extension.yml README.md commands knowledge hooks; do
+              if [ ! -e "$DIR/$required" ]; then
+                echo "❌ Faltando $DIR/$required"; exit 1
+              fi
+            done
+            for cmd in security-context.md security-setup.md threat-model.md security-audit.md; do
+              if [ ! -f "$DIR/commands/$cmd" ]; then
+                echo "❌ Faltando comando $DIR/commands/$cmd"; exit 1
+              fi
+            done
+            for hook in before_plan.yml before_implement.yml after_implement.yml; do
+              if [ ! -f "$DIR/hooks/$hook" ]; then
+                echo "❌ Faltando hook $DIR/hooks/$hook"; exit 1
+              fi
+            done
+          fi
+          echo "✅ Estrutura validada"
+
+      - name: Create tarball
+        id: tar
+        run: |
+          DIR="${{ steps.pkg.outputs.dir }}"
+          ARCHIVE="$DIR.tar.gz"
+          tar -czf "$ARCHIVE" -C . "$DIR"
+          CHECKSUM=$(sha256sum "$ARCHIVE" | awk '{print $1}')
+          echo "archive=$ARCHIVE" >> $GITHUB_OUTPUT
+          echo "checksum=$CHECKSUM" >> $GITHUB_OUTPUT
+          echo "📦 $ARCHIVE — SHA256: $CHECKSUM"
+
+      - name: Update catalog with new version and checksum
+        run: |
+          KIND="${{ steps.pkg.outputs.kind }}"
+          ID="${{ steps.pkg.outputs.id }}"
+          VERSION="${{ steps.pkg.outputs.version }}"
+          CHECKSUM="${{ steps.tar.outputs.checksum }}"
+
+          if [ "$KIND" = "preset" ]; then
+            CATALOG="catalogs/preset-catalog.json"
+          else
+            CATALOG="catalogs/extension-catalog.json"
+          fi
+
+          # Atualiza versão e checksum no catálogo via jq
+          URL="https://github.com/clean-environment/spec-kit-private/releases/download/${{ github.ref_name }}/${{ steps.tar.outputs.archive }}"
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          jq --arg id "$ID" \
+             --arg ver "$VERSION" \
+             --arg cs "$CHECKSUM" \
+             --arg url "$URL" \
+             --arg now "$NOW" \
+             '(.presets[]? | select(.id == $id)) |= (.version = $ver | .checksum_sha256 = $cs | .url = $url | .published_at = $now)
+              | (.extensions[]? | select(.id == $id)) |= (.version = $ver | .checksum_sha256 = $cs | .url = $url | .published_at = $now)' \
+             "$CATALOG" > "$CATALOG.tmp"
+          mv "$CATALOG.tmp" "$CATALOG"
+          echo "✅ Catálogo atualizado"
+
+      - name: Commit catalog update
+        run: |
+          git config user.name "ce-release-bot"
+          git config user.email "release-bot@cleanenvironment.com.br"
+          git add catalogs/
+          git commit -m "chore(catalog): release ${{ github.ref_name }} (sha256: ${{ steps.tar.outputs.checksum }})"
+          git push origin HEAD:main
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: |
+            Release automatizado de ${{ steps.pkg.outputs.id }} v${{ steps.pkg.outputs.version }}
+
+            **SHA-256:** `${{ steps.tar.outputs.checksum }}`
+
+            Instalação:
+            ```bash
+            specify ${{ steps.pkg.outputs.kind }} add ${{ steps.pkg.outputs.id }}
+            ```
+          files: ${{ steps.tar.outputs.archive }}
+          generate_release_notes: true

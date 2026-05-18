@@ -1,0 +1,186 @@
+name: Feature PR Security Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'specs/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'package.json'
+      - 'requirements*.txt'
+      - 'pyproject.toml'
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  speckit-security-check:
+    name: Clean Environment — Spec Kit Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # precisa de histórico completo para diff vs main
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install Spec Kit CLI
+        run: uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v0.8.11
+
+      - name: Configure Spec Kit catalogs (Clean Environment private)
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN_SPECKIT_PRIVATE }}
+        run: |
+          # Token com escopo repo:read no clean-environment/spec-kit-private
+          echo "SPECKIT_PRESET_CATALOG_URL=https://${GH_TOKEN}@raw.githubusercontent.com/clean-environment/spec-kit-private/main/catalogs/preset-catalog.json" >> $GITHUB_ENV
+          echo "SPECKIT_CATALOG_URL=https://${GH_TOKEN}@raw.githubusercontent.com/clean-environment/spec-kit-private/main/catalogs/extension-catalog.json" >> $GITHUB_ENV
+
+      - name: Verify preset and extension installed in repo
+        run: |
+          if [ ! -d ".specify/templates" ]; then
+            echo "❌ Spec Kit não inicializado neste repositório. Rode: specify init . --integration claude --preset clean-environment-seguranca-core"
+            exit 1
+          fi
+          if [ ! -f ".specify/memory/security-context.md" ]; then
+            echo "❌ security-context.md ausente. Rode /speckit.security-context."
+            exit 1
+          fi
+          if [ ! -f ".specify/memory/constitution.md" ]; then
+            echo "❌ constitution.md ausente. Rode /speckit.constitution."
+            exit 1
+          fi
+
+      - name: Detect feature directory under change
+        id: detect
+        run: |
+          # Encontra feature dir tocada nesta PR (pattern specs/NNN-name/ ou specs/YYYYMMDD-HHMMSS-name/)
+          FEATURE_DIR=$(git diff origin/main --name-only | grep -oE '^specs/[^/]+' | sort -u | head -1)
+          if [ -z "$FEATURE_DIR" ]; then
+            echo "Nenhuma feature alterada — nada a auditar."
+            echo "feature_dir=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "feature_dir=$FEATURE_DIR" >> $GITHUB_OUTPUT
+
+      - name: Validate feature artifacts present
+        if: steps.detect.outputs.feature_dir != ''
+        run: |
+          DIR="${{ steps.detect.outputs.feature_dir }}"
+          for required in spec.md plan.md tasks.md; do
+            if [ ! -f "$DIR/$required" ]; then
+              echo "❌ Faltando $DIR/$required"
+              exit 1
+            fi
+          done
+          echo "✅ Artefatos presentes: spec.md, plan.md, tasks.md"
+
+      - name: Run security-check.sh (estático)
+        run: |
+          if [ -f "scripts/security-check.sh" ]; then
+            bash scripts/security-check.sh
+          else
+            echo "❌ scripts/security-check.sh ausente. Rode /speckit.security-setup."
+            exit 1
+          fi
+
+      - name: Run /speckit.security-audit in headless mode
+        if: steps.detect.outputs.feature_dir != ''
+        env:
+          SPECKIT_HEADLESS: "1"
+        run: |
+          # Executa o comando da extension via CLI helper headless.
+          # O hook normalmente roda no agente; em CI usamos modo direto.
+          specify command run speckit.security-audit \
+              --mode=delta \
+              --target="${{ steps.detect.outputs.feature_dir }}" \
+              --block-on=critical \
+              --output-format=json > security-audit-report.json
+          # Captura exit code
+          AUDIT_EXIT=$?
+          echo "audit_exit=$AUDIT_EXIT" >> $GITHUB_ENV
+
+      - name: Parse audit results
+        if: steps.detect.outputs.feature_dir != ''
+        id: parse
+        run: |
+          if [ -f security-audit-report.json ]; then
+            CRITICAL=$(jq '.summary.critical // 0' security-audit-report.json)
+            HIGH=$(jq '.summary.high // 0' security-audit-report.json)
+            MEDIUM=$(jq '.summary.medium // 0' security-audit-report.json)
+            echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+            echo "high=$HIGH" >> $GITHUB_OUTPUT
+            echo "medium=$MEDIUM" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post audit summary as PR comment
+        if: steps.detect.outputs.feature_dir != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('${{ steps.detect.outputs.feature_dir }}/security-audit.md', 'utf8');
+            const summary = report.split('## Lista de findings')[0]; // só o sumário executivo
+
+            const body = `## 🔐 Clean Environment Security Audit
+
+            **Feature:** \`${{ steps.detect.outputs.feature_dir }}\`
+            **Modo:** delta (apenas mudanças desta branch)
+
+            ### Resumo
+
+            - CRÍTICOS: **${{ steps.parse.outputs.critical }}**
+            - ALTOS: **${{ steps.parse.outputs.high }}**
+            - MÉDIOS: **${{ steps.parse.outputs.medium }}**
+
+            ${summary}
+
+            ---
+
+            Relatório completo: \`${{ steps.detect.outputs.feature_dir }}/security-audit.md\`
+
+            **Constituição:** \`.specify/memory/constitution.md\`
+            **Documentação:** [docs/01-COMECE-AQUI.md](https://github.com/clean-environment/spec-kit-private/blob/main/docs/01-COMECE-AQUI.md)
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+
+      - name: Fail on CRITICAL findings
+        if: steps.parse.outputs.critical != '' && steps.parse.outputs.critical != '0'
+        run: |
+          echo "❌ ${{ steps.parse.outputs.critical }} findings CRÍTICOS bloqueiam o merge."
+          echo "Corrija os findings, ou solicite override expresso do Security Champion."
+          exit 1
+
+      - name: Export audit trail (if any skip happened)
+        if: always()
+        run: |
+          if [ -f ".specify/security-audit-trail.jsonl" ]; then
+            # Salva como artifact para revisão trimestral pela Equipe de Segurança
+            cp .specify/security-audit-trail.jsonl audit-trail-${{ github.event.pull_request.number }}.jsonl
+          fi
+
+      - name: Upload audit trail artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-trail-${{ github.event.pull_request.number }}
+          path: audit-trail-${{ github.event.pull_request.number }}.jsonl
+          if-no-files-found: ignore
+          retention-days: 730

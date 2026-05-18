@@ -1,0 +1,109 @@
+schema_version: "1.0"
+extension:
+  id: "clean-environment-seguranca-tools"
+  name: "Clean Environment — Segurança (Tools)"
+  version: "1.0.0"
+  author: "Clean Environment / Security"
+  description: >
+    Extension oficial da Clean Environment que adiciona comandos avançados e hooks
+    automáticos sobre o preset `clean-environment-seguranca-core`. Adiciona captura
+    estruturada de contexto de segurança, setup do ambiente do projeto, threat modeling
+    a partir da spec, e auditoria OWASP automatizada que consulta uma knowledge base
+    derivada dos documentos internos da empresa.
+
+  tags:
+    - security
+    - threat-modeling
+    - audit
+    - owasp
+    - lgpd
+    - clean-environment
+
+requires:
+  speckit_version: ">=0.8.11,<0.9.0"
+  presets:
+    recommended: ["clean-environment-seguranca-core"]
+  integrations:
+    any:
+      - claude       # principal
+      - codex
+      - cursor-agent
+      - gemini
+      - copilot
+      - generic
+
+# Comandos novos. Spec Kit registra cada arquivo .md em commands/ como skill do agente
+# (.claude/skills/speckit-<name>/SKILL.md no Claude Code, .agents/skills/... no Codex etc.)
+commands:
+  - id: "security-context"
+    file: commands/security-context.md
+    description: "Captura interativa de .specify/memory/security-context.md (tipo, dados, compliance, stack, criticidade)"
+  - id: "security-setup"
+    file: commands/security-setup.md
+    description: "Instala .gitignore, .env.example, husky, git-secrets, security-check.sh; gera secrets fortes"
+  - id: "threat-model"
+    file: commands/threat-model.md
+    description: "Gera threat-model.md (STRIDE) para a feature ativa a partir dos riscos OWASP marcados na spec"
+  - id: "security-audit"
+    file: commands/security-audit.md
+    description: "Auditoria OWASP/Constitution; consulta knowledge/vulnerabilities.md; gera security-audit.md"
+
+# Knowledge base referenciada pelos comandos.
+knowledge:
+  - file: knowledge/vulnerabilities.md
+    description: "Catálogo de vulnerabilidades comuns (XSS, SQLi, IDOR, CSRF, SSRF, etc.) com identificação, exploração, correção e teste. Derivado de VULNERABILIDADES-COMUNS.md"
+
+# Hooks automáticos. Gravados pelo CLI em .specify/extensions.yml do projeto.
+hooks:
+  before_plan:
+    - id: "ce-secctx-required"
+      command: "speckit.security-context"
+      optional: false
+      condition: "not file_exists('.specify/memory/security-context.md') or file_contains('.specify/memory/security-context.md', 'NEEDS CLARIFICATION')"
+      description: "Bloqueia /speckit.plan se security-context.md ausente ou incompleto"
+      prompt: |
+        Para prosseguir com o /speckit.plan você precisa primeiro definir o contexto
+        de segurança do projeto. Rode /speckit.security-context (ou $speckit-security-context
+        no Codex) e responda as perguntas. Após gerar e revisar .specify/memory/security-context.md,
+        retorne ao /speckit.plan.
+
+  before_implement:
+    - id: "ce-design-audit"
+      command: "speckit.security-audit"
+      optional: false
+      args: ["--mode=design"]
+      description: "Auditoria em modo design antes do código (spec+plan+tasks). Achados CRÍTICOS bloqueiam."
+      prompt: |
+        Auditoria em modo design será executada agora. Achados CRÍTICOS bloqueiam o /speckit.implement.
+        Para pular (apenas em emergência documentada): /speckit.implement --skip-security-gate
+        (registra entrada em .specify/security-audit-trail.jsonl).
+
+  after_implement:
+    - id: "ce-code-check"
+      command: "shell"
+      optional: false
+      script: "scripts/security-check.sh"
+      description: "Roda security-check.sh no código gerado. Falha → mensagem + comando para reabrir auditoria."
+      on_fail: |
+        scripts/security-check.sh reportou problemas. Reabra /speckit.security-audit --target=delta
+        para análise focada nas mudanças desta sessão de /speckit.implement.
+
+# Configuração do log de exceções (override de hook).
+audit_trail:
+  file: .specify/security-audit-trail.jsonl
+  retention_days: 730  # 2 anos
+  required_fields:
+    - timestamp
+    - actor
+    - command
+    - skipped_gate
+    - justification
+
+# Roll-out paramétrico: a extension pode ser parcialmente desligada por projeto.
+config_defaults:
+  enable_hooks: true
+  audit_default_mode: "design"  # design | full | delta
+  threat_model_framework: "STRIDE"  # STRIDE | PASTA
+  vulnerability_kb_path: "knowledge/vulnerabilities.md"
+  block_on_critical: true
+  block_on_high: false

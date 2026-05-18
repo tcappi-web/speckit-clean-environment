@@ -1,0 +1,142 @@
+name: Validate Preset and Extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'clean-environment-seguranca-core/**'
+      - 'clean-environment-seguranca-tools/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'clean-environment-seguranca-core/**'
+      - 'clean-environment-seguranca-tools/**'
+
+jobs:
+  validate-preset:
+    name: Validate preset structure and templates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate preset.yml schema
+        run: |
+          # Verificações básicas com grep + yq
+          MANIFEST=clean-environment-seguranca-core/preset.yml
+
+          for key in 'schema_version' 'preset:' 'id:' 'name:' 'version:' 'description:' 'templates:'; do
+            grep -q "$key" "$MANIFEST" || { echo "❌ Faltando '$key' em $MANIFEST"; exit 1; }
+          done
+
+          echo "✅ preset.yml válido"
+
+      - name: Validate templates present and well-formed markdown
+        run: |
+          for tpl in constitution-template.md spec-template.md plan-template.md tasks-template.md checklist-template.md; do
+            FILE="clean-environment-seguranca-core/templates/$tpl"
+            [ -f "$FILE" ] || { echo "❌ Faltando $FILE"; exit 1; }
+            # Heurística: começa com '# '
+            head -1 "$FILE" | grep -q '^# ' || { echo "❌ $FILE não começa com '# '"; exit 1; }
+          done
+          echo "✅ Templates presentes e bem formados"
+
+      - name: Lint markdown (templates)
+        uses: DavidAnson/markdownlint-cli2-action@v17
+        with:
+          globs: 'clean-environment-seguranca-core/templates/*.md'
+          config: '.markdownlint-cli2.jsonc'
+        continue-on-error: true   # markdownlint é informativo
+
+  validate-extension:
+    name: Validate extension structure and commands
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate extension.yml schema
+        run: |
+          MANIFEST=clean-environment-seguranca-tools/extension.yml
+          for key in 'schema_version' 'extension:' 'id:' 'name:' 'version:' 'commands:' 'hooks:'; do
+            grep -q "$key" "$MANIFEST" || { echo "❌ Faltando '$key' em $MANIFEST"; exit 1; }
+          done
+          echo "✅ extension.yml válido"
+
+      - name: Validate all 4 commands present
+        run: |
+          for cmd in security-context.md security-setup.md threat-model.md security-audit.md; do
+            FILE="clean-environment-seguranca-tools/commands/$cmd"
+            [ -f "$FILE" ] || { echo "❌ Faltando $FILE"; exit 1; }
+            grep -q "^---" "$FILE" || { echo "❌ $FILE não tem frontmatter YAML"; exit 1; }
+            grep -q "^description:" "$FILE" || { echo "❌ $FILE não tem 'description:' no frontmatter"; exit 1; }
+          done
+          echo "✅ Comandos presentes e com frontmatter"
+
+      - name: Validate all 3 hooks present
+        run: |
+          for hook in before_plan.yml before_implement.yml after_implement.yml; do
+            FILE="clean-environment-seguranca-tools/hooks/$hook"
+            [ -f "$FILE" ] || { echo "❌ Faltando $FILE"; exit 1; }
+          done
+          echo "✅ Hooks presentes"
+
+      - name: Validate knowledge base
+        run: |
+          FILE=clean-environment-seguranca-tools/knowledge/vulnerabilities.md
+          [ -f "$FILE" ] || { echo "❌ Faltando $FILE"; exit 1; }
+          # Conta slugs (linhas iniciando com <a id=)
+          COUNT=$(grep -cE '^<a id="' "$FILE")
+          if [ "$COUNT" -lt 15 ]; then
+            echo "❌ Knowledge base tem só $COUNT entradas, mínimo 15"; exit 1
+          fi
+          echo "✅ Knowledge base com $COUNT entradas"
+
+      - name: Validate script templates
+        run: |
+          for tpl in gitignore.txt env.example.txt security-check.sh husky-pre-commit.sh readme-security-section.md; do
+            FILE="clean-environment-seguranca-tools/scripts/templates/$tpl"
+            [ -f "$FILE" ] || { echo "❌ Faltando $FILE"; exit 1; }
+          done
+          # security-check.sh precisa começar com shebang
+          head -1 clean-environment-seguranca-tools/scripts/templates/security-check.sh | grep -q '^#!' \
+            || { echo "❌ security-check.sh sem shebang"; exit 1; }
+          echo "✅ Script templates presentes"
+
+  integration-test:
+    name: Integration test — install in demo project
+    runs-on: ubuntu-latest
+    needs: [validate-preset, validate-extension]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python and Spec Kit
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Spec Kit
+        run: |
+          pip install uv
+          uv tool install specify-cli --from git+https://github.com/github/spec-kit.git@v0.8.11
+
+      - name: Create demo project and install preset/extension from local
+        run: |
+          mkdir -p /tmp/demo
+          cd /tmp/demo
+          specify init . --integration claude --ignore-agent-tools
+          specify preset add --dev $GITHUB_WORKSPACE/clean-environment-seguranca-core
+          specify extension add --dev $GITHUB_WORKSPACE/clean-environment-seguranca-tools
+
+      - name: Verify templates installed
+        run: |
+          cd /tmp/demo
+          for tpl in constitution-template.md spec-template.md plan-template.md tasks-template.md checklist-template.md; do
+            [ -f ".specify/templates/$tpl" ] || { echo "❌ $tpl não foi instalado"; exit 1; }
+          done
+          echo "✅ Preset instalado corretamente"
+
+      - name: Verify extension installed
+        run: |
+          cd /tmp/demo
+          [ -d ".specify/extensions/clean-environment-seguranca-tools" ] || { echo "❌ Extension não instalada"; exit 1; }
+          [ -f ".specify/extensions.yml" ] || { echo "❌ extensions.yml não criado"; exit 1; }
+          echo "✅ Extension instalada corretamente"

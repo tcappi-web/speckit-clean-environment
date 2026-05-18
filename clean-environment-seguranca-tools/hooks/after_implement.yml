@@ -1,0 +1,71 @@
+schema_version: "1.0"
+hook:
+  id: "ce-code-check"
+  phase: "after_implement"
+  extension: "clean-environment-seguranca-tools"
+  optional: false
+  enabled: true
+
+  description: >
+    Executa scripts/security-check.sh sobre o código gerado pela sessão de
+    /speckit.implement. Detecta padrões inseguros estáticos (secrets, console.log,
+    localStorage com tokens, SQL concatenado, dangerouslySetInnerHTML, etc.).
+
+  condition: |
+    file_exists('scripts/security-check.sh')
+    or file_exists('scripts/security-check.ps1')
+
+  action: "execute_shell"
+  shell:
+    sh: "bash scripts/security-check.sh --post-implement --feature={{ feature_dir }}"
+    ps: "pwsh -File scripts/security-check.ps1 -PostImplement -Feature {{ feature_dir }}"
+
+  on_fail:
+    prompt: |
+      ⛔  Verificação pós-implementação falhou — Clean Environment
+
+      scripts/security-check.sh reportou problemas no código gerado.
+      Saída resumida:
+
+      {{ shell_output_tail }}
+
+      Próximos passos:
+        1. Revise os erros listados acima.
+        2. Para análise focada nas mudanças desta sessão:
+           /speckit.security-audit --mode=delta --target={{ feature_dir }}
+        3. Após corrigir, re-rode esta verificação:
+           bash scripts/security-check.sh
+
+      O hook NÃO pode ser desligado para release de produção (Cláusula V.4 da
+      Constituição). Para desligar localmente em desenvolvimento:
+        specify extension config clean-environment-seguranca-tools enable_hooks=false
+
+  on_pass:
+    prompt: |
+      ✅  Verificação pós-implementação aprovada.
+
+      Próximos passos recomendados:
+        - /speckit.security-audit --mode=full   (auditoria completa antes de PR)
+        - Code review humano (Cláusula V.4)
+        - Atualizar tasks.md marcando tasks completas
+
+  on_skip:
+    # Se security-check.sh não existe (projeto não rodou /speckit.security-setup)
+    prompt: |
+      ⚠️  Aviso — Clean Environment
+
+      scripts/security-check.sh não foi encontrado. Você deve rodar
+      /speckit.security-setup para instalá-lo antes de prosseguir.
+
+      Implementação atual permanece, mas o gate pós-implementação foi pulado
+      (registrado em .specify/security-audit-trail.jsonl).
+
+  audit_log:
+    enabled: true
+    file: ".specify/security-audit-trail.jsonl"
+    fields:
+      - "timestamp"
+      - "actor"
+      - "feature_dir"
+      - "check_result"     # pass | fail | skipped
+      - "fail_categories"  # lista das categorias do security-check.sh

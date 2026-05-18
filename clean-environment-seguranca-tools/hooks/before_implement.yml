@@ -1,0 +1,67 @@
+schema_version: "1.0"
+hook:
+  id: "ce-design-audit"
+  phase: "before_implement"
+  extension: "clean-environment-seguranca-tools"
+  optional: false
+  enabled: true
+
+  description: >
+    Executa /speckit.security-audit em modo "design" antes de /speckit.implement.
+    Analisa spec.md, plan.md, tasks.md, threat-model.md e contracts/ sem código.
+    Achados de severidade ≥ threshold bloqueiam a implementação.
+
+  condition: |
+    feature_dir_exists()
+    and file_exists('{{ feature_dir }}/plan.md')
+    and file_exists('{{ feature_dir }}/tasks.md')
+
+  action: "execute_command"
+  command: "speckit.security-audit"
+  args:
+    mode: "design"
+    block-on: "{{ config.block_on_critical ? 'critical' : 'high' }}"
+
+  on_block:
+    prompt: |
+      ⛔  Bloqueio de Segurança — Clean Environment
+
+      /speckit.security-audit em modo design encontrou achados que bloqueiam:
+        - CRÍTICOS: {{ findings.critical }}
+        - ALTOS: {{ findings.high }}
+
+      Relatório completo: {{ feature_dir }}/security-audit.md
+
+      Próximos passos:
+        1. Corrigir findings CRÍTICOS antes de prosseguir.
+        2. Após corrigir, re-rode /speckit.security-audit para confirmar.
+        3. Depois /speckit.implement.
+
+      Para pular este gate em EMERGÊNCIA (com registro em audit trail):
+        /speckit.implement --skip-security-gate
+
+      Use --skip-security-gate APENAS para hotfixes urgentes. Toda execução com skip
+      é registrada em .specify/security-audit-trail.jsonl e revisada em retrospectivas
+      trimestrais pela Equipe de Segurança Corporativa.
+
+  on_pass:
+    prompt: |
+      ✅  Auditoria de design aprovada — {{ findings.total }} findings totais,
+      zero bloqueantes.
+
+      Relatório: {{ feature_dir }}/security-audit.md
+
+      Prosseguindo para /speckit.implement.
+
+  audit_log:
+    enabled: true
+    file: ".specify/security-audit-trail.jsonl"
+    fields:
+      - "timestamp"
+      - "actor"
+      - "feature_dir"
+      - "audit_mode"
+      - "findings_critical"
+      - "findings_high"
+      - "result"           # pass | block | skipped
+      - "skip_justification"

@@ -1,0 +1,83 @@
+schema_version: "1.0"
+preset:
+  id: "clean-environment-seguranca-core"
+  name: "Clean Environment — Segurança (Core)"
+  version: "1.0.0"
+  author: "Clean Environment / Security"
+  description: >
+    Preset oficial da Clean Environment que substitui os templates do core do Spec Kit
+    para garantir que toda spec, plan, tasks, constitution e checklist nasça com seções
+    obrigatórias de segurança de dados. Implementa os princípios não-negociáveis da
+    empresa como base de QUALQUER projeto desenvolvido com agentes de IA.
+
+  tags:
+    - security
+    - compliance
+    - lgpd
+    - gdpr
+    - owasp
+    - clean-environment
+
+requires:
+  speckit_version: ">=0.8.11,<0.9.0"
+
+# Substitui os templates do Spec Kit core. Resolução: a stack do Spec Kit procura
+# project-local overrides → presets → extensions → core, com primeiro match vencendo.
+templates:
+  - source: templates/constitution-template.md
+    target: constitution-template.md
+  - source: templates/spec-template.md
+    target: spec-template.md
+  - source: templates/plan-template.md
+    target: plan-template.md
+  - source: templates/tasks-template.md
+    target: tasks-template.md
+  - source: templates/checklist-template.md
+    target: checklist-template.md
+
+# Comandos do preset NÃO substituem comandos do core neste release.
+# Eles instruem o agente a respeitar as seções novas dos templates.
+# Comandos novos (security-context, security-setup, threat-model, security-audit)
+# pertencem à extension clean-environment-seguranca-tools.
+commands: []
+
+# Marcadores que os templates usam para gates condicionais.
+# Resolvidos pelo /speckit.plan a partir de .specify/memory/security-context.md.
+template_variables:
+  compliance_lgpd:
+    description: "Ativa Compliance Gate LGPD no plan-template"
+    source: ".specify/memory/security-context.md → compliance.lgpd"
+  compliance_gdpr:
+    description: "Ativa Compliance Gate GDPR"
+    source: ".specify/memory/security-context.md → compliance.gdpr"
+  compliance_pci_dss:
+    description: "Ativa Compliance Gate PCI-DSS"
+    source: ".specify/memory/security-context.md → compliance.pci_dss"
+  compliance_hipaa:
+    description: "Ativa Compliance Gate HIPAA"
+    source: ".specify/memory/security-context.md → compliance.hipaa"
+
+post_install_message: |
+  ✅ Preset Clean Environment — Segurança (Core) instalado.
+
+  Próximos passos OBRIGATÓRIOS antes de criar a primeira feature:
+
+    1. specify extension add clean-environment-seguranca-tools
+       (instala /speckit.security-context, /speckit.security-setup,
+        /speckit.threat-model, /speckit.security-audit + hooks)
+
+    2. /speckit.security-context
+       (preenche .specify/memory/security-context.md com tipo de projeto,
+        dados tratados, compliance aplicável, stack, criticidade)
+
+    3. /speckit.constitution
+       (gera constitution já reagrupada nos 6 artigos temáticos da empresa,
+        com compliance condicional baseado no security-context)
+
+    4. /speckit.security-setup
+       (.gitignore, .env.example, scripts/security-check.sh, husky,
+        git-secrets, secrets fortes gerados via openssl)
+
+  Depois disso, o fluxo normal de feature segue: /speckit.specify → /speckit.clarify →
+  /speckit.checklist → /speckit.threat-model → /speckit.plan → /speckit.tasks →
+  /speckit.analyze → /speckit.security-audit → /speckit.implement

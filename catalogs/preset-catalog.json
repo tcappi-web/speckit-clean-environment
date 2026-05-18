@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "catalog": {
+    "name": "Clean Environment — Presets",
+    "description": "Catálogo privado de presets oficiais da Clean Environment para Spec Kit.",
+    "maintainer": "Equipe de Segurança Corporativa — Clean Environment",
+    "url": "https://github.com/clean-environment/spec-kit-private",
+    "visibility": "private"
+  },
+  "presets": [
+    {
+      "id": "clean-environment-seguranca-core",
+      "name": "Clean Environment — Segurança (Core)",
+      "version": "1.0.0",
+      "description": "Substitui templates do core do Spec Kit para forçar segurança em toda spec, plan, tasks, constitution e checklist. Implementa os princípios não-negociáveis da empresa como base inegociável.",
+      "author": "Clean Environment / Security",
+      "license": "proprietary",
+      "tags": ["security", "compliance", "lgpd", "gdpr", "owasp", "clean-environment"],
+      "url": "https://github.com/clean-environment/spec-kit-private/releases/download/clean-environment-seguranca-core-v1.0.0/clean-environment-seguranca-core.tar.gz",
+      "checksum_sha256": "[CHECKSUM_GERADO_NO_BUILD]",
+      "requires": {
+        "speckit_version": ">=0.8.11,<0.9.0"
+      },
+      "recommended_extensions": [
+        "clean-environment-seguranca-tools"
+      ],
+      "published_at": "2026-05-17T00:00:00Z",
+      "verified": true,
+      "official": true,
+      "install_command": "specify preset add clean-environment-seguranca-core"
+    }
+  ]
+}

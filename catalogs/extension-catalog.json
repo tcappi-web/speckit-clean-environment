@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "catalog": {
+    "name": "Clean Environment — Extensions",
+    "description": "Catálogo privado de extensions oficiais da Clean Environment para Spec Kit.",
+    "maintainer": "Equipe de Segurança Corporativa — Clean Environment",
+    "url": "https://github.com/clean-environment/spec-kit-private",
+    "visibility": "private"
+  },
+  "extensions": [
+    {
+      "id": "clean-environment-seguranca-tools",
+      "name": "Clean Environment — Segurança (Tools)",
+      "version": "1.0.0",
+      "description": "Adiciona /speckit.security-context, /speckit.security-setup, /speckit.threat-model, /speckit.security-audit + hooks before_plan/before_implement/after_implement + knowledge base de vulnerabilidades.",
+      "author": "Clean Environment / Security",
+      "license": "proprietary",
+      "tags": ["security", "threat-modeling", "audit", "owasp", "lgpd", "clean-environment"],
+      "url": "https://github.com/clean-environment/spec-kit-private/releases/download/clean-environment-seguranca-tools-v1.0.0/clean-environment-seguranca-tools.tar.gz",
+      "checksum_sha256": "[CHECKSUM_GERADO_NO_BUILD]",
+      "requires": {
+        "speckit_version": ">=0.8.11,<0.9.0",
+        "presets": {
+          "recommended": ["clean-environment-seguranca-core"]
+        },
+        "integrations": {
+          "any": ["claude", "codex", "cursor-agent", "gemini", "copilot", "generic"]
+        }
+      },
+      "commands": [
+        "speckit.security-context",
+        "speckit.security-setup",
+        "speckit.threat-model",
+        "speckit.security-audit"
+      ],
+      "hooks": ["before_plan", "before_implement", "after_implement"],
+      "published_at": "2026-05-17T00:00:00Z",
+      "verified": true,
+      "official": true,
+      "install_command": "specify extension add clean-environment-seguranca-tools"
+    }
+  ]
+}
